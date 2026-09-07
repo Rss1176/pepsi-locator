@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0c0c0e"/>
+      <stop offset="0.18" stop-color="#3a3a40"/>
+      <stop offset="0.42" stop-color="#141418"/>
+      <stop offset="0.72" stop-color="#26262b"/>
+      <stop offset="1" stop-color="#0a0a0c"/>
+    </linearGradient>
+    <linearGradient id="metal" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#8e8e96"/>
+      <stop offset="0.3" stop-color="#e6e6ea"/>
+      <stop offset="0.62" stop-color="#a7a7af"/>
+      <stop offset="1" stop-color="#77777f"/>
+    </linearGradient>
+    <linearGradient id="plastic" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#101014"/>
+      <stop offset="0.22" stop-color="#44444c"/>
+      <stop offset="0.5" stop-color="#16161a"/>
+      <stop offset="0.78" stop-color="#2e2e35"/>
+      <stop offset="1" stop-color="#0c0c10"/>
+    </linearGradient>
+    <linearGradient id="carton" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b1b20"/>
+      <stop offset="1" stop-color="#07070a"/>
+    </linearGradient>
+    <radialGradient id="floor" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="rgba(0,0,0,0.34)"/>
+      <stop offset="1" stop-color="rgba(0,0,0,0)"/>
+    </radialGradient>
+
+    <clipPath id="globeClip"><circle cx="0" cy="0" r="52"/></clipPath>
+
+    <g id="globe">
+      <circle cx="0" cy="0" r="52" fill="#f7f7f9"/>
+      <g clip-path="url(#globeClip)">
+        <path d="M-56 -56 H56 V-4 C24 -22 -20 6 -56 -2 Z" fill="#eb1c2d"/>
+        <path d="M-56 14 C-20 24 24 -4 56 12 V56 H-56 Z" fill="#0057b8"/>
+      </g>
+      <circle cx="0" cy="0" r="52" fill="none" stroke="rgba(0,0,0,0.16)" stroke-width="2"/>
+    </g>
+
+    <g id="can">
+      <rect x="-78" y="-166" width="156" height="332" rx="24" fill="url(#body)"/>
+      <rect x="-78" y="-166" width="156" height="22" rx="11" fill="url(#metal)"/>
+      <rect x="-78" y="144" width="156" height="22" rx="11" fill="url(#metal)"/>
+      <rect x="-78" y="-166" width="156" height="332" rx="24" fill="none" stroke="rgba(255,255,255,0.09)" stroke-width="2"/>
+      <g transform="translate(0,-38) scale(0.66)"><use href="#globe"/></g>
+      <text x="0" y="66" text-anchor="middle" font-family="Helvetica, Arial, sans-serif"
+            font-size="46" font-weight="700" letter-spacing="3" fill="#f7f7f9">MAX</text>
+      <rect x="-78" y="86" width="156" height="6" fill="#0057b8"/>
+    </g>
+  </defs>
+
+  <ellipse cx="512" cy="792" rx="366" ry="46" fill="url(#floor)"/>
+  <g opacity="0.8"><g transform="translate(314 486) scale(0.84)"><use href="#can"/></g><g transform="translate(446 486) scale(0.84)"><use href="#can"/></g><g transform="translate(578 486) scale(0.84)"><use href="#can"/></g><g transform="translate(710 486) scale(0.84)"><use href="#can"/></g></g>
+  <g transform="translate(282.5 618) scale(0.98)"><use href="#can"/></g><g transform="translate(435.5 618) scale(0.98)"><use href="#can"/></g><g transform="translate(588.5 618) scale(0.98)"><use href="#can"/></g><g transform="translate(741.5 618) scale(0.98)"><use href="#can"/></g>
+</svg>

@@ -1,0 +1,256 @@
+{
+  "generatedAt": "2026-09-01T06:00:00.000Z",
+  "offers": [
+    {
+      "retailer": "tesco",
+      "format": "pack-24",
+      "title": "Pepsi Max No Sugar Cola 24 x 330ml",
+      "price": 14,
+      "url": "https://www.tesco.com/groceries/en-GB/search?query=pepsi%20max",
+      "inStock": true,
+      "capturedAt": "2026-09-01T06:00:00.000Z",
+      "source": "sample",
+      "loyaltyPrice": 11,
+      "loyaltyScheme": "Clubcard"
+    },
+    {
+      "retailer": "tesco",
+      "format": "pack-8",
+      "title": "Pepsi Max No Sugar Cola 8 x 330ml",
+      "price": 5.5,
+      "url": "https://www.tesco.com/groceries/en-GB/search?query=pepsi%20max",
+      "inStock": true,
+      "capturedAt": "2026-09-01T06:00:00.000Z",
+      "source": "sample",
+      "loyaltyPrice": 4.5,
+      "loyaltyScheme": "Clubcard"
+    },
+    {
+      "retailer": "tesco",
+      "format": "pack-4",
+      "title": "Pepsi Max No Sugar Cola 4 x 330ml",
+      "price": 3,
+      "url": "https://www.tesco.com/groceries/en-GB/search?query=pepsi%20max",
+      "inStock": true,
+      "capturedAt": "2026-09-01T06:00:00.000Z",
+      "source": "sample"
+    },
+    {
+      "retailer": "tesco",
+      "format": "bottle",
+      "title": "Pepsi Max No Sugar Cola 2L",
+      "price": 2.4,
+      "url": "https://www.tesco.com/groceries/en-GB/search?query=pepsi%20max",
+      "inStock": true,
+      "capturedAt": "2026-09-01T06:00:00.000Z",
+      "source": "sample",
+      "loyaltyPrice": 2,
+      "loyaltyScheme": "Clubcard"
+    },
+    {
+      "retailer": "asda",
+      "format": "pack-24",
+      "title": "Pepsi Max No Sugar Cola Cans 24 x 330ml",
+      "price": 13.5,
+      "url": "https://groceries.asda.com/search/pepsi%20max",
+      "inStock": true,
+      "capturedAt": "2026-09-01T06:00:00.000Z",
+      "source": "sample"
+    },
+    {
+      "retailer": "asda",
+      "format": "pack-8",
+      "title": "Pepsi Max No Sugar Cola Cans 8 x 330ml",
+      "price": 4.75,
+      "url": "https://groceries.asda.com/search/pepsi%20max",
+      "inStock": true,
+      "capturedAt": "2026-09-01T06:00:00.000Z",
+      "source": "sample"
+    },
+    {
+      "retailer": "asda",
+      "format": "bottle",
+      "title": "Pepsi Max No Sugar Cola Bottle 2L",
+      "price": 2.25,
+      "url": "https://groceries.asda.com/search/pepsi%20max",
+      "inStock": true,
+      "capturedAt": "2026-09-01T06:00:00.000Z",
+      "source": "sample"
+    },
+    {
+      "retailer": "sainsburys",
+      "format": "pack-24",
+      "title": "Pepsi Max Cans 24 x 330ml",
+      "price": 14.5,
+      "url": "https://www.sainsburys.co.uk/gol-ui/SearchResults/pepsi%20max",
+      "inStock": true,
+      "capturedAt": "2026-09-01T06:00:00.000Z",
+      "source": "sample",
+      "loyaltyPrice": 11.5,
+      "loyaltyScheme": "Nectar"
+    },
+    {
+      "retailer": "sainsburys",
+      "format": "pack-8",
+      "title": "Pepsi Max Cans 8 x 330ml",
+      "price": 5.25,
+      "url": "https://www.sainsburys.co.uk/gol-ui/SearchResults/pepsi%20max",
+      "inStock": true,
+      "capturedAt": "2026-09-01T06:00:00.000Z",
+      "source": "sample",
+      "loyaltyPrice": 4.5,
+      "loyaltyScheme": "Nectar"
+    },
+    {
+      "retailer": "sainsburys",
+      "format": "bottle",
+      "title": "Pepsi Max Bottle 1.5L",
+      "price": 2.35,
+      "url": "https://www.sainsburys.co.uk/gol-ui/SearchResults/pepsi%20max",
+      "inStock": true,
+      "capturedAt": "2026-09-01T06:00:00.000Z",
+      "source": "sample"
+    },
+    {
+      "retailer": "morrisons",
+      "format": "pack-24",
+      "title": "Pepsi Max Cola Cans 24 x 330ml",
+      "price": 13.75,
+      "url": "https://groceries.morrisons.com/search?entry=pepsi%20max",
+      "inStock": true,
+      "capturedAt": "2026-09-01T06:00:00.000Z",
+      "source": "sample"
+    },
+    {
+      "retailer": "morrisons",
+      "format": "pack-4",
+      "title": "Pepsi Max Cola Cans 4 x 330ml",
+      "price": 2.9,
+      "url": "https://groceries.morrisons.com/search?entry=pepsi%20max",
+      "inStock": true,
+      "capturedAt": "2026-09-01T06:00:00.000Z",
+      "source": "sample"
+    },
+    {
+      "retailer": "morrisons",
+      "format": "bottle",
+      "title": "Pepsi Max Cola 2L",
+      "price": 2.3,
+      "url": "https://groceries.morrisons.com/search?entry=pepsi%20max",
+      "inStock": true,
+      "capturedAt": "2026-09-01T06:00:00.000Z",
+      "source": "sample"
+    },
+    {
+      "retailer": "aldi",
+      "format": "bottle",
+      "title": "Pepsi Max 2L",
+      "price": 2.19,
+      "url": "https://groceries.aldi.co.uk/en-GB/Search?keywords=pepsi%20max",
+      "inStock": true,
+      "capturedAt": "2026-09-01T06:00:00.000Z",
+      "source": "sample"
+    },
+    {
+      "retailer": "coop",
+      "format": "pack-8",
+      "title": "Pepsi Max 8 x 330ml",
+      "price": 5.85,
+      "url": "https://www.coop.co.uk/products/search?q=pepsi%20max",
+      "inStock": true,
+      "capturedAt": "2026-09-01T06:00:00.000Z",
+      "source": "sample"
+    },
+    {
+      "retailer": "coop",
+      "format": "bottle",
+      "title": "Pepsi Max 1.5L",
+      "price": 2.65,
+      "url": "https://www.coop.co.uk/products/search?q=pepsi%20max",
+      "inStock": true,
+      "capturedAt": "2026-09-01T06:00:00.000Z",
+      "source": "sample"
+    },
+    {
+      "retailer": "waitrose",
+      "format": "pack-24",
+      "title": "Pepsi Max No Sugar Cola 24 x 330ml",
+      "price": 15,
+      "url": "https://www.waitrose.com/ecom/shop/search?&searchTerm=pepsi%20max",
+      "inStock": true,
+      "capturedAt": "2026-09-01T06:00:00.000Z",
+      "source": "sample"
+    },
+    {
+      "retailer": "waitrose",
+      "format": "pack-8",
+      "title": "Pepsi Max No Sugar Cola 8 x 330ml",
+      "price": 5.6,
+      "url": "https://www.waitrose.com/ecom/shop/search?&searchTerm=pepsi%20max",
+      "inStock": true,
+      "capturedAt": "2026-09-01T06:00:00.000Z",
+      "source": "sample"
+    },
+    {
+      "retailer": "waitrose",
+      "format": "bottle",
+      "title": "Pepsi Max No Sugar Cola 2L",
+      "price": 2.5,
+      "url": "https://www.waitrose.com/ecom/shop/search?&searchTerm=pepsi%20max",
+      "inStock": true,
+      "capturedAt": "2026-09-01T06:00:00.000Z",
+      "source": "sample"
+    },
+    {
+      "retailer": "iceland",
+      "format": "pack-24",
+      "title": "Pepsi Max 24 x 330ml",
+      "price": 12.5,
+      "url": "https://www.iceland.co.uk/search?q=pepsi%20max",
+      "inStock": true,
+      "capturedAt": "2026-09-01T06:00:00.000Z",
+      "source": "sample"
+    },
+    {
+      "retailer": "iceland",
+      "format": "pack-8",
+      "title": "Pepsi Max 8 x 330ml",
+      "price": 4.5,
+      "url": "https://www.iceland.co.uk/search?q=pepsi%20max",
+      "inStock": true,
+      "capturedAt": "2026-09-01T06:00:00.000Z",
+      "source": "sample"
+    },
+    {
+      "retailer": "ocado",
+      "format": "pack-24",
+      "title": "Pepsi Max No Sugar Cola Cans 24 x 330ml",
+      "price": 14.25,
+      "url": "https://www.ocado.com/search?entry=pepsi%20max",
+      "inStock": true,
+      "capturedAt": "2026-09-01T06:00:00.000Z",
+      "source": "sample"
+    },
+    {
+      "retailer": "ocado",
+      "format": "pack-4",
+      "title": "Pepsi Max No Sugar Cola Cans 4 x 330ml",
+      "price": 3.15,
+      "url": "https://www.ocado.com/search?entry=pepsi%20max",
+      "inStock": true,
+      "capturedAt": "2026-09-01T06:00:00.000Z",
+      "source": "sample"
+    },
+    {
+      "retailer": "ocado",
+      "format": "bottle",
+      "title": "Pepsi Max No Sugar Cola 2L",
+      "price": 2.45,
+      "url": "https://www.ocado.com/search?entry=pepsi%20max",
+      "inStock": true,
+      "capturedAt": "2026-09-01T06:00:00.000Z",
+      "source": "sample"
+    }
+  ],
+  "statuses": []
+}
