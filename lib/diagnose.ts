@@ -1,4 +1,7 @@
 import { ADAPTERS, adapterFor } from './retailers';
+import { collectTrolley, sellerOffersFromJsonLd, TROLLEY_URLS } from './sources/trolley';
+import { fetchHtml } from './retailers/http';
+import { jsonLdBlocks, productsFromJsonLd } from './retailers/extract';
 import { toOffers } from './retailers/base';
 import { detectFormat, isPepsiMax, parsePrice } from './match';
 import type { RetailerId } from './types';
@@ -87,4 +90,77 @@ export async function diagnose(id: RetailerId, includeProbe = true): Promise<Dia
 /** Compact diagnosis of every retailer, small enough to read in one go. */
 export async function diagnoseAll(): Promise<Diagnostic[]> {
   return Promise.all(ADAPTERS.map((adapter) => diagnose(adapter.id, false)));
+}
+
+/** Hosts the URL probe may read. Anything else is refused. */
+const PROBE_HOSTS = [
+  'trolley.co.uk',
+  'tesco.com',
+  'asda.com',
+  'sainsburys.co.uk',
+  'morrisons.com',
+  'aldi.co.uk',
+  'lidl.co.uk',
+  'coop.co.uk',
+  'waitrose.com',
+  'iceland.co.uk',
+  'ocado.com',
+];
+
+export function isProbeAllowed(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'https:') return false;
+    return PROBE_HOSTS.some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Read one allowed page and report its shape. This exists because the
+ * development environment cannot reach these sites, so a parser can only be
+ * written against markup reported back from a deployment.
+ */
+export async function probeUrl(url: string): Promise<Record<string, unknown>> {
+  const html = await fetchHtml(url, { timeoutMs: TIMEOUT_MS });
+  const sellerOffers = sellerOffersFromJsonLd(html);
+
+  return {
+    url,
+    bytes: html.length,
+    title: html.match(/<title[^>]*>([\s\S]{0,120}?)<\/title>/i)?.[1]?.trim(),
+    jsonLdBlocks: jsonLdBlocks(html).length,
+    jsonLdProducts: productsFromJsonLd(html).length,
+    sellerOffers: sellerOffers.length,
+    sellerOffersSample: sellerOffers.slice(0, 12),
+    pepsiMentions: (html.match(/pepsi/gi) ?? []).length,
+    priceSnippets: sample(html, /£\s?\d+[.,]\d{2}/g, 6, 200),
+  };
+}
+
+/** Short windows of markup around the first few matches, for reading shape. */
+function sample(html: string, pattern: RegExp, count: number, width: number): string[] {
+  const found: string[] = [];
+  for (const match of html.matchAll(pattern)) {
+    if (found.length >= count) break;
+    const start = Math.max(0, (match.index ?? 0) - width / 2);
+    found.push(html.slice(start, start + width).replace(/\s+/g, ' '));
+  }
+  return found;
+}
+
+/** What the comparison site yielded, and which of its URL shapes answered. */
+export async function diagnoseTrolley(): Promise<Record<string, unknown>> {
+  try {
+    const offers = await collectTrolley({ timeoutMs: TIMEOUT_MS });
+    return {
+      source: 'trolley',
+      urlsTried: TROLLEY_URLS,
+      offers: offers.length,
+      byRetailer: offers.map((offer) => ({ retailer: offer.retailer, format: offer.format, price: offer.price })),
+    };
+  } catch (error) {
+    return { source: 'trolley', error: error instanceof Error ? error.message : String(error) };
+  }
 }

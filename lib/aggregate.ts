@@ -43,6 +43,7 @@ export function aggregate(snapshot: Snapshot): Aggregate {
     generatedAt: snapshot.generatedAt,
     summaries,
     statuses: snapshot.statuses,
+    sources: snapshot.sources ?? [],
     liveOfferCount: snapshot.offers.filter((offer) => offer.source === 'live').length,
   };
 }

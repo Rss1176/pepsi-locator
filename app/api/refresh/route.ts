@@ -29,6 +29,7 @@ async function handle(request: Request): Promise<NextResponse> {
       liveOffers: result.found,
       persisted: isPersistent(),
       statuses: result.statuses,
+      sources: result.sources,
     },
     { headers: { 'cache-control': 'no-store' } },
   );

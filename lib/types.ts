@@ -28,6 +28,8 @@ export interface Offer {
   /** Name of the scheme the loyalty price belongs to, for example Clubcard. */
   loyaltyScheme?: string;
   url: string;
+  /** Set when the price was read through a comparison site rather than the shop. */
+  via?: string;
   inStock: boolean;
   /** ISO timestamp of the reading. */
   capturedAt: string;
@@ -45,10 +47,22 @@ export interface RetailerStatus {
   checkedAt: string;
 }
 
+/** A source that yields prices for several retailers at once. */
+export interface SourceStatus {
+  id: string;
+  label: string;
+  state: RetailerState;
+  offers: number;
+  message?: string;
+  durationMs: number;
+  checkedAt: string;
+}
+
 export interface Snapshot {
   generatedAt: string;
   offers: Offer[];
   statuses: RetailerStatus[];
+  sources?: SourceStatus[];
 }
 
 export interface FormatSummary {
@@ -62,5 +76,6 @@ export interface Aggregate {
   generatedAt: string;
   summaries: Record<PackFormat, FormatSummary>;
   statuses: RetailerStatus[];
+  sources: SourceStatus[];
   liveOfferCount: number;
 }

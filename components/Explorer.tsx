@@ -152,6 +152,7 @@ export default function Explorer({ initial }: { initial: PriceFeed }) {
                       <a href={offer.url} target="_blank" rel="noreferrer noopener">
                         {offer.title}
                       </a>
+                      {offer.via && <span className="badge">via {offer.via}</span>}
                     </p>
                   </div>
                   <div className="row-right">
@@ -181,6 +182,22 @@ export default function Explorer({ initial }: { initial: PriceFeed }) {
 
         {feed.statuses.length > 0 ? (
           <ul className="list">
+            {(feed.sources ?? []).map((source) => (
+              <li className={`row ${source.state === 'ok' ? '' : 'row-muted'}`} key={source.id}>
+                <SiteIcon domain="trolley.co.uk" alt="" className="row-icon" />
+                <div>
+                  <p className="row-name">
+                    {source.label}
+                    <span className="badge">comparison site</span>
+                  </p>
+                  <p className="row-sub">{source.message ?? STATE_COPY[source.state]}</p>
+                </div>
+                <div className="row-right">
+                  <span className="row-price">{source.offers}</span>
+                  <span className="row-sub">{source.offers === 1 ? 'price' : 'prices'}</span>
+                </div>
+              </li>
+            ))}
             {feed.statuses.map((status) => {
               const retailer = retailerMeta(status.retailer);
               return (

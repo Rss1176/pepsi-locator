@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { diagnose, diagnoseAll } from '@/lib/diagnose';
+import { diagnose, diagnoseAll, diagnoseTrolley, isProbeAllowed, probeUrl } from '@/lib/diagnose';
 import { RETAILER_IDS } from '@/lib/catalog';
 import type { RetailerId } from '@/lib/types';
 
@@ -7,29 +7,43 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
+const json = (body: unknown, status = 200) =>
+  NextResponse.json(body, { status, headers: { 'cache-control': 'no-store' } });
+
 /**
- * Reports what each retailer's page actually yielded: how many candidates were
- * extracted, which titles read as Pepsi Max, and which pack formats went
- * unrecognised. Only the fixed retailer search URLs are ever fetched.
+ * Reports what each source actually yielded, so a parser that returns nothing
+ * can be corrected against the real page.
  *
  *   /api/diagnose                  every retailer, compact
  *   /api/diagnose?retailer=ocado   one retailer, with page structure details
+ *   /api/diagnose?source=trolley   the comparison site
+ *   /api/diagnose?url=https://...  one page from the allowed host list
  */
 export async function GET(request: Request) {
-  const requested = new URL(request.url).searchParams.get('retailer');
+  const params = new URL(request.url).searchParams;
 
-  if (!requested) {
-    return NextResponse.json(await diagnoseAll(), { headers: { 'cache-control': 'no-store' } });
+  const url = params.get('url');
+  if (url) {
+    if (!isProbeAllowed(url)) {
+      return json({ error: 'That URL is not on the allowed host list' }, 400);
+    }
+    try {
+      return json(await probeUrl(url));
+    } catch (error) {
+      return json({ url, error: error instanceof Error ? error.message : String(error) });
+    }
   }
 
-  if (!RETAILER_IDS.includes(requested as RetailerId)) {
-    return NextResponse.json(
-      { error: `Unknown retailer. Use one of: ${RETAILER_IDS.join(', ')}` },
-      { status: 400 },
-    );
+  if (params.get('source') === 'trolley') {
+    return json(await diagnoseTrolley());
   }
 
-  return NextResponse.json(await diagnose(requested as RetailerId), {
-    headers: { 'cache-control': 'no-store' },
-  });
+  const retailer = params.get('retailer');
+  if (!retailer) return json(await diagnoseAll());
+
+  if (!RETAILER_IDS.includes(retailer as RetailerId)) {
+    return json({ error: `Unknown retailer. Use one of: ${RETAILER_IDS.join(', ')}` }, 400);
+  }
+
+  return json(await diagnose(retailer as RetailerId));
 }
