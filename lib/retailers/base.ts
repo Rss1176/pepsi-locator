@@ -15,6 +15,11 @@ export interface RetailerAdapter {
    * turns the request away so the UI can say so honestly rather than showing a gap.
    */
   collect(options: RequestOptions): Promise<RawProduct[]>;
+  /**
+   * Report what the fetched page actually contains, so a parser that returns
+   * nothing can be diagnosed from a deployment rather than guessed at.
+   */
+  probe?(options: RequestOptions): Promise<Record<string, unknown>>;
   /** Set when a retailer publishes no online prices at all. */
   unsupported?: string;
 }
