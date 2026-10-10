@@ -162,7 +162,11 @@ function toNumber(value: unknown): number | null {
  * stood behind: unknown retailer, unrecognised format, implausible price, or a
  * citation that does not point at the shop it claims to quote.
  */
-export function validateClaims(claims: Claim[], capturedAt: string): { offers: Offer[]; rejected: string[] } {
+export function validateClaims(
+  claims: Claim[],
+  capturedAt: string,
+  evidence: string[] = [],
+): { offers: Offer[]; rejected: string[] } {
   const offers: Offer[] = [];
   const rejected: string[] = [];
   const seen = new Set<string>();
@@ -198,8 +202,17 @@ export function validateClaims(claims: Claim[], capturedAt: string): { offers: O
       continue;
     }
 
-    if (!claim.url || !citationIsCredible(claim.url, retailer)) {
-      rejected.push(`${label}: citation missing or not on the retailer's domain`);
+    // Either the cited page is on the shop's domain, or the grounding record
+    // shows the model actually retrieved a page there. A grounded citation is
+    // usually a Google redirect, so the URL alone is not enough to judge by.
+    const domain = RETAILERS[retailer].domain;
+    const citedOnDomain = Boolean(claim.url) && citationIsCredible(claim.url!, retailer);
+    const retrievedFromDomain = evidence.some(
+      (host) => host === domain || host.endsWith(`.${domain}`),
+    );
+
+    if (!citedOnDomain && !retrievedFromDomain) {
+      rejected.push(`${label}: no citation on ${domain} and nothing retrieved from it`);
       continue;
     }
 
@@ -217,7 +230,9 @@ export function validateClaims(claims: Claim[], capturedAt: string): { offers: O
       format,
       title: claim.title?.trim() || `Pepsi Max ${format}`,
       price,
-      url: claim.url,
+      // Keep a link the reader can follow: the cited page when it is the
+      // shop's own, otherwise the shop's search page rather than a redirect.
+      url: citedOnDomain ? claim.url! : `https://www.${domain}`,
       via: 'Gemini search',
       inStock: true,
       capturedAt,
@@ -343,6 +358,34 @@ function isToolShapeComplaint(status: number, body: string): boolean {
 interface Generated {
   text: string;
   model: string;
+  /** Domains the model actually retrieved, per the grounding metadata. */
+  evidence: string[];
+}
+
+/**
+ * Grounding reports each retrieved page. The uri is usually a Google redirect,
+ * so the domain field is the reliable record of where the model actually read.
+ */
+export function groundingDomains(
+  chunks: { web?: { uri?: string; domain?: string } }[] | undefined,
+): string[] {
+  const domains = new Set<string>();
+
+  for (const chunk of chunks ?? []) {
+    const domain = chunk.web?.domain;
+    if (domain) {
+      domains.add(domain.replace(/^www\./, '').toLowerCase());
+      continue;
+    }
+
+    try {
+      if (chunk.web?.uri) domains.add(new URL(chunk.web.uri).hostname.replace(/^www\./, '').toLowerCase());
+    } catch {
+      // A malformed uri tells us nothing; skip it.
+    }
+  }
+
+  return [...domains];
 }
 
 /** Marks a failure as quota rather than anything the request can fix. */
@@ -381,11 +424,17 @@ async function generate(
 
       if (response.ok) {
         const payload = (await response.json()) as {
-          candidates?: { content?: { parts?: { text?: string }[] } }[];
+          candidates?: {
+            content?: { parts?: { text?: string }[] };
+            groundingMetadata?: { groundingChunks?: { web?: { uri?: string; domain?: string } }[] };
+          }[];
         };
-        const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('') ?? '';
+
+        const candidate = payload.candidates?.[0];
+        const text = candidate?.content?.parts?.map((part) => part.text ?? '').join('') ?? '';
         cachedModel = model;
-        return { text, model };
+
+        return { text, model, evidence: groundingDomains(candidate?.groundingMetadata?.groundingChunks) };
       }
 
       const body = (await response.text()).slice(0, 400);
@@ -492,7 +541,7 @@ export async function collectGeminiFor(
     async (retailer): Promise<Attempt> => {
       try {
         // cachedModel moves on if a retirement or quota notice redirected us.
-        const { text, model: used } = await generate(
+        const { text, model: used, evidence } = await generate(
           cachedModel ?? model,
           key,
           promptFor(retailer),
@@ -517,7 +566,7 @@ export async function collectGeminiFor(
 
         // Trust the retailer we asked about over the one the reply names.
         const claims = parsed.prices.map((claim) => ({ ...claim, retailer }));
-        return { ...validateClaims(claims, capturedAt), used };
+        return { ...validateClaims(claims, capturedAt, evidence), used };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return {
@@ -555,7 +604,7 @@ async function collectCombined(
   capturedAt: string,
 ): Promise<GeminiResult> {
   try {
-    const { text, model: used } = await generate(
+    const { text, model: used, evidence } = await generate(
       cachedModel ?? model,
       key,
       promptForMany(retailers),
@@ -581,8 +630,9 @@ async function collectCombined(
     const scoped = parsed.prices.filter((claim) => wanted.has(String(claim.retailer ?? '')));
     const dropped = parsed.prices.length - scoped.length;
 
-    const result = validateClaims(scoped, capturedAt);
+    const result = validateClaims(scoped, capturedAt, evidence);
     if (dropped > 0) result.rejected.push(`${dropped} claims about retailers that were not asked about`);
+    if (evidence.length > 0) result.rejected.push(`retrieved from: ${evidence.join(', ')}`);
 
     return { ...result, model: used, asked: retailers };
   } catch (error) {
