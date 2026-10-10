@@ -20,11 +20,10 @@ const TIMEOUT_MS = 20_000;
  * instead of failing the whole sweep.
  */
 const MODEL_PREFERENCE = [
-  'gemini-2.5-flash',
+  'gemini-3.8-flash',
   'gemini-flash-latest',
-  'gemini-2.0-flash',
-  'gemini-2.5-pro',
-  'gemini-1.5-flash',
+  'gemini-3.7-flash',
+  'gemini-2.5-flash',
 ];
 
 /** How many retailer queries run at once. */
@@ -261,13 +260,39 @@ export async function chooseModel(key: string): Promise<string> {
  */
 const TOOL_SHAPES: Record<string, unknown>[][] = [[{ googleSearch: {} }], [{ google_search: {} }]];
 
+/**
+ * A retired model answers with the id to use instead. Following that is more
+ * durable than any list compiled by hand, since the next deprecation carries
+ * its own fix.
+ */
+export function parseSuggestedModel(body: string): string | null {
+  const suggestion = body.match(/use\s+models\/([A-Za-z0-9.\-_]+)/);
+  if (suggestion) return suggestion[1];
+
+  const bare = body.match(/models\/([A-Za-z0-9.\-_]+)\s+for the latest/);
+  return bare ? bare[1] : null;
+}
+
+/**
+ * Any 404 naming another model is worth following, whatever wording it uses.
+ * Tying this to a phrase would make recovery depend on error copy staying put.
+ */
+export function shouldSwitchModel(status: number, body: string): boolean {
+  return status === 404 && parseSuggestedModel(body) !== null;
+}
+
 /** True when a 400 is about the grounding tool field rather than the request. */
 function isToolShapeComplaint(status: number, body: string): boolean {
   if (status !== 400) return false;
   return /google_?search|unknown name|invalid json payload|tools/i.test(body);
 }
 
-async function generate(model: string, key: string, prompt: string): Promise<string> {
+interface Generated {
+  text: string;
+  model: string;
+}
+
+async function generate(model: string, key: string, prompt: string, depth = 0): Promise<Generated> {
   let lastError = 'no attempt made';
 
   for (const tools of TOOL_SHAPES) {
@@ -291,11 +316,23 @@ async function generate(model: string, key: string, prompt: string): Promise<str
         const payload = (await response.json()) as {
           candidates?: { content?: { parts?: { text?: string }[] } }[];
         };
-        return payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('') ?? '';
+        const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('') ?? '';
+        cachedModel = model;
+        return { text, model };
       }
 
-      const body = (await response.text()).slice(0, 300);
+      const body = (await response.text()).slice(0, 400);
       lastError = `HTTP ${response.status}: ${body}`;
+
+      // A retired model names its successor, so adopt it and carry on.
+      if (shouldSwitchModel(response.status, body) && depth < 2) {
+        const replacement = parseSuggestedModel(body);
+        if (replacement && replacement !== model) {
+          clearTimeout(timeout);
+          cachedModel = replacement;
+          return generate(replacement, key, prompt, depth + 1);
+        }
+      }
 
       // Retry the other spelling only when the tool field is what was refused.
       // An auth or quota failure repeats identically, so it fails fast instead.
@@ -338,25 +375,30 @@ export async function collectGeminiFor(retailers: RetailerId[]): Promise<GeminiR
 
   const results = await inBatches(retailers, CONCURRENCY, async (retailer) => {
     try {
-      const text = await generate(model, key, promptFor(retailer));
+      // cachedModel moves on if a retirement notice named a successor.
+      const { text, model: used } = await generate(cachedModel ?? model, key, promptFor(retailer));
       const parsed = extractJson(text) as { prices?: Claim[] } | null;
 
       if (!parsed?.prices) {
-        return { offers: [], rejected: [`${retailer}: no JSON in reply: ${text.slice(0, 120)}`] };
+        return { offers: [], rejected: [`${retailer}: no JSON in reply: ${text.slice(0, 120)}`], used };
       }
 
       // Trust the retailer we asked about over the one the reply names.
       const claims = parsed.prices.map((claim) => ({ ...claim, retailer }));
-      return validateClaims(claims, capturedAt);
+      return { ...validateClaims(claims, capturedAt), used };
     } catch (error) {
-      return { offers: [], rejected: [`${retailer}: ${error instanceof Error ? error.message : String(error)}`] };
+      return {
+        offers: [],
+        rejected: [`${retailer}: ${error instanceof Error ? error.message : String(error)}`],
+        used: undefined,
+      };
     }
   });
 
   return {
     offers: results.flatMap((result) => result.offers),
     rejected: results.flatMap((result) => result.rejected),
-    model,
+    model: results.find((result) => result.used)?.used ?? cachedModel ?? model,
     asked: retailers,
   };
 }

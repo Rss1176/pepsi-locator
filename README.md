@@ -80,7 +80,7 @@ All optional. Copy `.env.example` for reference.
 | `CRON_SECRET` | Protects `/api/refresh`. Vercel Cron sends it as a bearer token automatically. Without it the route is open, which suits local development. |
 | `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Vercel KV or Upstash Redis. Makes swept prices durable across serverless instances. |
 | `GEMINI_API_KEY` | Enables grounded search through Gemini for the retailers that refuse direct requests. A price is accepted only when the model cites a page on that retailer's own domain. |
-| `GEMINI_MODEL` | Overrides the Gemini model, default `gemini-2.5-flash`. |
+| `GEMINI_MODEL` | Overrides the Gemini model. Left unset, the model is discovered from the key and a retirement notice is followed automatically. |
 | `SCAN_ON_REQUEST` | Set to `1` to let a page request trigger a sweep when the stored snapshot holds no live prices or is over twelve hours old. At most one sweep per instance per hour. |
 
 Without KV, swept prices live only in the memory of a warm instance, so the page
