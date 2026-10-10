@@ -64,6 +64,37 @@ interface Claim {
   url?: string;
 }
 
+/**
+ * One prompt covering several shops. A free tier allowance is counted in
+ * requests, not tokens, so asking once about six retailers costs a sixth of
+ * what asking six times does.
+ */
+function promptForMany(retailers: RetailerId[]): string {
+  const shops = retailers.map((id) => `- ${RETAILERS[id].name}: retailer id "${id}", domain ${RETAILERS[id].domain}`);
+
+  return `Find today's price of Pepsi Max at these UK supermarkets, using Google Search.
+
+${shops.join('\n')}
+
+Pack formats wanted:
+- bottle: a single bottle, 500ml to 2 litre
+- pack-4: 4 x 330ml cans
+- pack-8: 8 x 330ml cans
+- pack-24: 24 x 330ml cans
+
+Rules:
+- Only report a price you have actually seen on a page you retrieved.
+- Give that page's URL for every price, on the domain of the shop it belongs
+  to. A price without its source URL is useless, so omit it rather than guess.
+- Report the standard shelf price in "price". Put any loyalty card price in
+  "loyaltyPrice" with its scheme name, never in "price".
+- Omit anything you could not verify. An incomplete answer is correct; an
+  invented one is not. An empty list is a valid answer.
+
+Reply with JSON only, no prose and no code fence:
+{"prices":[{"retailer":"tesco","format":"pack-24","title":"<title as shown>","price":14.00,"loyaltyPrice":11.00,"loyaltyScheme":"Clubcard","url":"https://www.tesco.com/..."}]}`;
+}
+
 function promptFor(retailer: RetailerId): string {
   const shop = RETAILERS[retailer];
 
@@ -436,6 +467,7 @@ async function inBatches<T, R extends { quota?: boolean }>(
 export async function collectGeminiFor(
   retailers: RetailerId[],
   grounding = true,
+  perRetailer = process.env.GEMINI_PER_RETAILER === '1',
 ): Promise<GeminiResult> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('GEMINI_API_KEY is not set');
@@ -443,6 +475,9 @@ export async function collectGeminiFor(
 
   const model = await chooseModel(key);
   const capturedAt = new Date().toISOString();
+
+  // One request for the lot, which is what a free tier allowance can afford.
+  if (!perRetailer) return collectCombined(retailers, key, model, grounding, capturedAt);
 
   interface Attempt {
     offers: Offer[];
@@ -505,6 +540,59 @@ export async function collectGeminiFor(
     model: results.find((result) => result.used)?.used ?? cachedModel ?? model,
     asked: retailers.filter((retailer) => !skipped.includes(retailer)),
   };
+}
+
+/**
+ * Ask about every retailer in a single request. The validation gate still
+ * decides what survives, and here the retailer comes from the claim itself,
+ * so a citation is checked against the shop the model actually named.
+ */
+async function collectCombined(
+  retailers: RetailerId[],
+  key: string,
+  model: string,
+  grounding: boolean,
+  capturedAt: string,
+): Promise<GeminiResult> {
+  try {
+    const { text, model: used } = await generate(
+      cachedModel ?? model,
+      key,
+      promptForMany(retailers),
+      grounding,
+    );
+
+    const parsed = extractJson(text) as { prices?: Claim[] } | null;
+    if (!parsed?.prices) {
+      return { offers: [], rejected: [`no JSON in reply: ${text.slice(0, 200)}`], model: used, asked: retailers };
+    }
+
+    if (!grounding) {
+      return {
+        offers: [],
+        rejected: [`ungrounded call succeeded, ${parsed.prices.length} claims discarded`],
+        model: used,
+        asked: retailers,
+      };
+    }
+
+    // Only claims about the shops we asked about are considered.
+    const wanted = new Set<string>(retailers);
+    const scoped = parsed.prices.filter((claim) => wanted.has(String(claim.retailer ?? '')));
+    const dropped = parsed.prices.length - scoped.length;
+
+    const result = validateClaims(scoped, capturedAt);
+    if (dropped > 0) result.rejected.push(`${dropped} claims about retailers that were not asked about`);
+
+    return { ...result, model: used, asked: retailers };
+  } catch (error) {
+    return {
+      offers: [],
+      rejected: [error instanceof Error ? error.message : String(error)],
+      model: cachedModel ?? model,
+      asked: retailers,
+    };
+  }
 }
 
 /** A small sample by default, so diagnosing does not spend the day's quota. */
