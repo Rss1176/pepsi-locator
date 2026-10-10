@@ -24,7 +24,10 @@ const json = (body: unknown, status = 200) =>
  *   /api/diagnose                  every retailer, compact
  *   /api/diagnose?retailer=ocado   one retailer, with page structure details
  *   /api/diagnose?source=trolley   the comparison site
- *   /api/diagnose?source=gemini    grounded search, with rejected claims
+ *   /api/diagnose?source=gemini    grounded search over two retailers
+ *   ...&retailers=tesco,asda       pick which retailers to ask about
+ *   ...&all=1                      every retailer, which costs ten calls
+ *   ...&grounding=off              reachability check only; prices discarded
  *   /api/diagnose?url=https://...  one page from the allowed host list
  */
 export async function GET(request: Request) {
@@ -44,7 +47,20 @@ export async function GET(request: Request) {
 
   const source = params.get('source');
   if (source === 'trolley') return json(await diagnoseTrolley());
-  if (source === 'gemini') return json(await diagnoseGemini());
+
+  if (source === 'gemini') {
+    const requested = (params.get('retailers') ?? '')
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry): entry is RetailerId => RETAILER_IDS.includes(entry as RetailerId));
+
+    return json(
+      await diagnoseGemini({
+        retailers: params.get('all') === '1' ? RETAILER_IDS : requested.length > 0 ? requested : undefined,
+        grounding: params.get('grounding') !== 'off',
+      }),
+    );
+  }
 
   const retailer = params.get('retailer');
   if (!retailer) return json(await diagnoseAll());

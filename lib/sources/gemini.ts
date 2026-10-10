@@ -26,8 +26,12 @@ const MODEL_PREFERENCE = [
   'gemini-2.5-flash',
 ];
 
-/** How many retailer queries run at once. */
-const CONCURRENCY = 4;
+/**
+ * Free tier quotas are small and shared across the day, so queries go out two
+ * at a time and a sweep stops as soon as the quota is clearly spent rather
+ * than burning the remaining allowance on calls that cannot succeed.
+ */
+const CONCURRENCY = 2;
 
 /** Retailers to ask about when there is no previous sweep to learn from. */
 export const DEFAULT_TARGETS: RetailerId[] = ['tesco', 'asda', 'sainsburys', 'aldi'];
@@ -281,6 +285,24 @@ export function shouldSwitchModel(status: number, body: string): boolean {
   return status === 404 && parseSuggestedModel(body) !== null;
 }
 
+/** True when the API is refusing on quota rather than on the request itself. */
+export function isQuotaExhausted(status: number, body: string): boolean {
+  return status === 429 || /RESOURCE_EXHAUSTED|exceeded your current quota/i.test(body);
+}
+
+/** Seconds Google asks us to wait, when it says. */
+export function parseRetryDelay(body: string): number | null {
+  const match = body.match(/"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/);
+  return match ? Number(match[1]) : null;
+}
+
+/** The model after the current one, for stepping down when quota runs out. */
+export function nextModelAfter(model: string): string | null {
+  const index = MODEL_PREFERENCE.indexOf(model);
+  if (index === -1) return MODEL_PREFERENCE[0] === model ? null : MODEL_PREFERENCE[0];
+  return MODEL_PREFERENCE[index + 1] ?? null;
+}
+
 /** True when a 400 is about the grounding tool field rather than the request. */
 function isToolShapeComplaint(status: number, body: string): boolean {
   if (status !== 400) return false;
@@ -292,10 +314,24 @@ interface Generated {
   model: string;
 }
 
-async function generate(model: string, key: string, prompt: string, depth = 0): Promise<Generated> {
+/** Marks a failure as quota rather than anything the request can fix. */
+export class QuotaError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'QuotaError';
+  }
+}
+
+async function generate(
+  model: string,
+  key: string,
+  prompt: string,
+  grounding = true,
+  depth = 0,
+): Promise<Generated> {
   let lastError = 'no attempt made';
 
-  for (const tools of TOOL_SHAPES) {
+  for (const tools of grounding ? TOOL_SHAPES : [undefined]) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
@@ -305,7 +341,7 @@ async function generate(model: string, key: string, prompt: string, depth = 0): 
         headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
         body: JSON.stringify({
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          tools,
+          ...(tools ? { tools } : {}),
           generationConfig: { temperature: 0 },
         }),
         signal: controller.signal,
@@ -330,12 +366,31 @@ async function generate(model: string, key: string, prompt: string, depth = 0): 
         if (replacement && replacement !== model) {
           clearTimeout(timeout);
           cachedModel = replacement;
-          return generate(replacement, key, prompt, depth + 1);
+          return generate(replacement, key, prompt, grounding, depth + 1);
         }
       }
 
+      // Quota: wait once if Google names a short delay, else step down a model.
+      if (isQuotaExhausted(response.status, body) && depth < 2) {
+        clearTimeout(timeout);
+
+        const delay = parseRetryDelay(body);
+        if (delay !== null && delay <= 5) {
+          await new Promise((resolve) => setTimeout(resolve, delay * 1000));
+          return generate(model, key, prompt, grounding, depth + 1);
+        }
+
+        const cheaper = nextModelAfter(model);
+        if (cheaper) {
+          cachedModel = cheaper;
+          return generate(cheaper, key, prompt, grounding, depth + 1);
+        }
+
+        throw new QuotaError(lastError);
+      }
+
       // Retry the other spelling only when the tool field is what was refused.
-      // An auth or quota failure repeats identically, so it fails fast instead.
+      // An auth failure repeats identically, so it fails fast instead.
       if (!isToolShapeComplaint(response.status, body)) throw new Error(lastError);
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
@@ -348,16 +403,29 @@ async function generate(model: string, key: string, prompt: string, depth = 0): 
   throw new Error(lastError);
 }
 
-/** Run tasks a few at a time so a sweep does not open ten calls at once. */
-async function inBatches<T, R>(items: T[], size: number, run: (item: T) => Promise<R>): Promise<R[]> {
+/**
+ * Run tasks a few at a time, stopping early when a whole batch fails on quota.
+ * Pressing on would spend an allowance that cannot succeed and would leave the
+ * next scheduled sweep with nothing.
+ */
+async function inBatches<T, R extends { quota?: boolean }>(
+  items: T[],
+  size: number,
+  run: (item: T) => Promise<R>,
+): Promise<{ results: R[]; skipped: T[] }> {
   const results: R[] = [];
 
   for (let index = 0; index < items.length; index += size) {
     const batch = items.slice(index, index + size);
-    results.push(...(await Promise.all(batch.map(run))));
+    const settled = await Promise.all(batch.map(run));
+    results.push(...settled);
+
+    if (settled.every((result) => result.quota)) {
+      return { results, skipped: items.slice(index + size) };
+    }
   }
 
-  return results;
+  return { results, skipped: [] };
 }
 
 /**
@@ -365,7 +433,10 @@ async function inBatches<T, R>(items: T[], size: number, run: (item: T) => Promi
  * per retailer so the grounding stays focused and each citation is checkable
  * against the shop it claims to quote.
  */
-export async function collectGeminiFor(retailers: RetailerId[]): Promise<GeminiResult> {
+export async function collectGeminiFor(
+  retailers: RetailerId[],
+  grounding = true,
+): Promise<GeminiResult> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('GEMINI_API_KEY is not set');
   if (retailers.length === 0) return { offers: [], rejected: [], model: 'none', asked: [] };
@@ -373,37 +444,70 @@ export async function collectGeminiFor(retailers: RetailerId[]): Promise<GeminiR
   const model = await chooseModel(key);
   const capturedAt = new Date().toISOString();
 
-  const results = await inBatches(retailers, CONCURRENCY, async (retailer) => {
-    try {
-      // cachedModel moves on if a retirement notice named a successor.
-      const { text, model: used } = await generate(cachedModel ?? model, key, promptFor(retailer));
-      const parsed = extractJson(text) as { prices?: Claim[] } | null;
+  interface Attempt {
+    offers: Offer[];
+    rejected: string[];
+    used?: string;
+    quota?: boolean;
+  }
 
-      if (!parsed?.prices) {
-        return { offers: [], rejected: [`${retailer}: no JSON in reply: ${text.slice(0, 120)}`], used };
+  const { results, skipped } = await inBatches<RetailerId, Attempt>(
+    retailers,
+    CONCURRENCY,
+    async (retailer): Promise<Attempt> => {
+      try {
+        // cachedModel moves on if a retirement or quota notice redirected us.
+        const { text, model: used } = await generate(
+          cachedModel ?? model,
+          key,
+          promptFor(retailer),
+          grounding,
+        );
+        const parsed = extractJson(text) as { prices?: Claim[] } | null;
+
+        if (!parsed?.prices) {
+          return { offers: [], rejected: [`${retailer}: no JSON in reply: ${text.slice(0, 120)}`], used };
+        }
+
+        // Without grounding the model has no live data, so anything it returns
+        // is recollection at best. The call is still useful as a reachability
+        // check, but nothing from it may become a price.
+        if (!grounding) {
+          return {
+            offers: [],
+            rejected: [`${retailer}: ungrounded call succeeded, ${parsed.prices.length} claims discarded`],
+            used,
+          };
+        }
+
+        // Trust the retailer we asked about over the one the reply names.
+        const claims = parsed.prices.map((claim) => ({ ...claim, retailer }));
+        return { ...validateClaims(claims, capturedAt), used };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          offers: [],
+          rejected: [`${retailer}: ${message}`],
+          quota: error instanceof QuotaError || isQuotaExhausted(0, message),
+        };
       }
+    },
+  );
 
-      // Trust the retailer we asked about over the one the reply names.
-      const claims = parsed.prices.map((claim) => ({ ...claim, retailer }));
-      return { ...validateClaims(claims, capturedAt), used };
-    } catch (error) {
-      return {
-        offers: [],
-        rejected: [`${retailer}: ${error instanceof Error ? error.message : String(error)}`],
-        used: undefined,
-      };
-    }
-  });
+  const rejected = results.flatMap((result) => result.rejected);
+  if (skipped.length > 0) {
+    rejected.push(`skipped ${skipped.join(', ')}: quota exhausted, stopping to preserve the allowance`);
+  }
 
   return {
     offers: results.flatMap((result) => result.offers),
-    rejected: results.flatMap((result) => result.rejected),
+    rejected,
     model: results.find((result) => result.used)?.used ?? cachedModel ?? model,
-    asked: retailers,
+    asked: retailers.filter((retailer) => !skipped.includes(retailer)),
   };
 }
 
-/** Every retailer, used by the diagnostics. */
-export async function collectGemini(): Promise<GeminiResult> {
-  return collectGeminiFor(RETAILER_IDS);
+/** A small sample by default, so diagnosing does not spend the day's quota. */
+export async function collectGemini(retailers?: RetailerId[], grounding = true): Promise<GeminiResult> {
+  return collectGeminiFor(retailers ?? RETAILER_IDS.slice(0, 2), grounding);
 }

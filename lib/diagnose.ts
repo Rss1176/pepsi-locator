@@ -167,17 +167,23 @@ export async function diagnoseTrolley(): Promise<Record<string, unknown>> {
 }
 
 /** What Gemini returned and, importantly, what was thrown out and why. */
-export async function diagnoseGemini(): Promise<Record<string, unknown>> {
+export async function diagnoseGemini(options: {
+  retailers?: RetailerId[];
+  grounding?: boolean;
+} = {}): Promise<Record<string, unknown>> {
   if (!geminiConfigured()) {
     return { source: 'gemini', configured: false, message: 'Set GEMINI_API_KEY to enable grounded search' };
   }
 
   try {
-    const result = await collectGemini();
+    const grounding = options.grounding ?? true;
+    const result = await collectGemini(options.retailers, grounding);
     return {
       source: 'gemini',
       configured: true,
+      grounding,
       model: result.model,
+      asked: result.asked,
       accepted: result.offers.length,
       offers: result.offers.map((offer) => ({
         retailer: offer.retailer,
