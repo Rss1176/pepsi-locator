@@ -1,4 +1,5 @@
 import { ADAPTERS, adapterFor } from './retailers';
+import { collectGemini, isConfigured as geminiConfigured } from './sources/gemini';
 import { collectTrolley, sellerOffersFromJsonLd, TROLLEY_URLS } from './sources/trolley';
 import { fetchHtml } from './retailers/http';
 import { jsonLdBlocks, productsFromJsonLd } from './retailers/extract';
@@ -162,5 +163,32 @@ export async function diagnoseTrolley(): Promise<Record<string, unknown>> {
     };
   } catch (error) {
     return { source: 'trolley', error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** What Gemini returned and, importantly, what was thrown out and why. */
+export async function diagnoseGemini(): Promise<Record<string, unknown>> {
+  if (!geminiConfigured()) {
+    return { source: 'gemini', configured: false, message: 'Set GEMINI_API_KEY to enable grounded search' };
+  }
+
+  try {
+    const result = await collectGemini();
+    return {
+      source: 'gemini',
+      configured: true,
+      model: result.model,
+      accepted: result.offers.length,
+      offers: result.offers.map((offer) => ({
+        retailer: offer.retailer,
+        format: offer.format,
+        price: offer.price,
+        loyaltyPrice: offer.loyaltyPrice,
+        url: offer.url,
+      })),
+      rejected: result.rejected,
+    };
+  } catch (error) {
+    return { source: 'gemini', configured: true, error: error instanceof Error ? error.message : String(error) };
   }
 }

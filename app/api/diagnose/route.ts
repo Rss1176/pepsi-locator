@@ -1,5 +1,12 @@
 import { NextResponse } from 'next/server';
-import { diagnose, diagnoseAll, diagnoseTrolley, isProbeAllowed, probeUrl } from '@/lib/diagnose';
+import {
+  diagnose,
+  diagnoseAll,
+  diagnoseGemini,
+  diagnoseTrolley,
+  isProbeAllowed,
+  probeUrl,
+} from '@/lib/diagnose';
 import { RETAILER_IDS } from '@/lib/catalog';
 import type { RetailerId } from '@/lib/types';
 
@@ -17,6 +24,7 @@ const json = (body: unknown, status = 200) =>
  *   /api/diagnose                  every retailer, compact
  *   /api/diagnose?retailer=ocado   one retailer, with page structure details
  *   /api/diagnose?source=trolley   the comparison site
+ *   /api/diagnose?source=gemini    grounded search, with rejected claims
  *   /api/diagnose?url=https://...  one page from the allowed host list
  */
 export async function GET(request: Request) {
@@ -34,9 +42,9 @@ export async function GET(request: Request) {
     }
   }
 
-  if (params.get('source') === 'trolley') {
-    return json(await diagnoseTrolley());
-  }
+  const source = params.get('source');
+  if (source === 'trolley') return json(await diagnoseTrolley());
+  if (source === 'gemini') return json(await diagnoseGemini());
 
   const retailer = params.get('retailer');
   if (!retailer) return json(await diagnoseAll());

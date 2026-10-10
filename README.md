@@ -21,11 +21,25 @@ external services required.
 
 ## Honest limits
 
-The four large grocers sit behind bot protection. A plain server side fetch from
-a Vercel IP is often refused, and the sweep reports that refusal rather than
-inventing a number. Expect some retailers to return prices and others to report
-`blocked` on any given run. Lidl GB publishes no online grocery prices at all,
-so it is declared unsupported.
+Tesco, Asda, Sainsbury's and Aldi refuse requests from datacentre addresses.
+The decision is taken at the TLS handshake, on the connection fingerprint and
+the address, before any header is read, so no header or parser change reaches
+them. The sweep reports that refusal rather than inventing a number. Lidl GB
+publishes no online grocery prices at all, so it is declared unsupported.
+
+Two sources work around this, both second hand and both labelled as such in the
+interface:
+
+- **Trolley**, a comparison site that publishes every supermarket's price for a
+  product on one page.
+- **Gemini with Google Search grounding**, when `GEMINI_API_KEY` is set. Google
+  performs the retrieval. A returned price is accepted only when the model
+  cites a page on that retailer's own domain or on an allowed comparison site,
+  and only when the figure is plausible for that pack format. Everything else
+  is discarded and listed under `rejected` in the diagnostics.
+
+A first hand reading from a shop's own site always wins over either of them for
+the same product.
 
 The repository ships with `data/snapshot.json`, a seeded set of plausible prices
 so a fresh deployment is never blank. Every one of those entries is marked
@@ -65,6 +79,8 @@ All optional. Copy `.env.example` for reference.
 | --- | --- |
 | `CRON_SECRET` | Protects `/api/refresh`. Vercel Cron sends it as a bearer token automatically. Without it the route is open, which suits local development. |
 | `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Vercel KV or Upstash Redis. Makes swept prices durable across serverless instances. |
+| `GEMINI_API_KEY` | Enables grounded search through Gemini for the retailers that refuse direct requests. A price is accepted only when the model cites a page on that retailer's own domain. |
+| `GEMINI_MODEL` | Overrides the Gemini model, default `gemini-2.5-flash`. |
 | `SCAN_ON_REQUEST` | Set to `1` to let a page request trigger a sweep when the stored snapshot holds no live prices or is over twelve hours old. At most one sweep per instance per hour. |
 
 Without KV, swept prices live only in the memory of a warm instance, so the page
