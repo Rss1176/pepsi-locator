@@ -12,8 +12,29 @@ import type { Offer, PackFormat, RetailerId } from '../types';
  * it is labelled in the interface so it is never mistaken for a shelf reading.
  */
 const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
-const DEFAULT_MODEL = 'gemini-2.5-flash';
-const TIMEOUT_MS = 45_000;
+const TIMEOUT_MS = 20_000;
+
+/**
+ * Preferred models, best first. The list is matched against what the key can
+ * actually see, so a model being renamed or withdrawn degrades to the next one
+ * instead of failing the whole sweep.
+ */
+const MODEL_PREFERENCE = [
+  'gemini-2.5-flash',
+  'gemini-flash-latest',
+  'gemini-2.0-flash',
+  'gemini-2.5-pro',
+  'gemini-1.5-flash',
+];
+
+/** How many retailer queries run at once. */
+const CONCURRENCY = 4;
+
+/** Retailers to ask about when there is no previous sweep to learn from. */
+export const DEFAULT_TARGETS: RetailerId[] = ['tesco', 'asda', 'sainsburys', 'aldi'];
+
+/** Caps a sweep so the grounded calls finish inside the function timeout. */
+export const MAX_TARGETS = 6;
 
 /** Comparison sites accepted as a citation when the retailer's own page is not. */
 const COMPARISON_HOSTS = ['trolley.co.uk'];
@@ -40,23 +61,29 @@ interface Claim {
   url?: string;
 }
 
-const PROMPT = `Find the current price of Pepsi Max at UK supermarkets, using Google Search.
+function promptFor(retailer: RetailerId): string {
+  const shop = RETAILERS[retailer];
 
-Retailers: ${RETAILER_IDS.join(', ')}.
-Pack formats: bottle (any single bottle 500ml to 2L), pack-4 (4 x 330ml cans),
-pack-8 (8 x 330ml cans), pack-24 (24 x 330ml cans).
+  return `Find today's price of Pepsi Max at ${shop.name} (${shop.domain}) in the UK, using Google Search.
+
+Pack formats wanted:
+- bottle: a single bottle, 500ml to 2 litre
+- pack-4: 4 x 330ml cans
+- pack-8: 8 x 330ml cans
+- pack-24: 24 x 330ml cans
 
 Rules:
-- Only report a price you have actually seen on a page you retrieved.
-- Give the product page URL you took each price from. A price without its
-  source URL is useless, so omit it entirely rather than guessing.
-- Report the standard shelf price. Put any Clubcard, Nectar or other loyalty
-  price in loyaltyPrice with the scheme name, never in price.
-- Omit any retailer or format you could not verify. An incomplete answer is
-  correct; an invented one is not.
+- Only report a price you have actually seen on a ${shop.domain} page you retrieved.
+- Give that page's URL for every price. A price without its source URL is
+  useless, so omit it rather than guessing.
+- Report the standard shelf price in "price". Put any ${shop.loyaltyScheme ?? 'loyalty'}
+  price in "loyaltyPrice", never in "price".
+- Omit any format you could not verify. An incomplete answer is correct; an
+  invented one is not. An empty list is a valid answer.
 
 Reply with JSON only, no prose and no code fence:
-{"prices":[{"retailer":"tesco","format":"pack-24","title":"<product title as shown>","price":14.00,"loyaltyPrice":11.00,"loyaltyScheme":"Clubcard","url":"https://..."}]}`;
+{"prices":[{"retailer":"${retailer}","format":"pack-24","title":"<title as shown>","price":14.00,"loyaltyPrice":11.00,"loyaltyScheme":"${shop.loyaltyScheme ?? ''}","url":"https://www.${shop.domain}/..."}]}`;
+}
 
 /** Pull the first JSON object out of a reply that may carry prose or a fence. */
 function extractJson(text: string): unknown | null {
@@ -179,47 +206,162 @@ export interface GeminiResult {
   offers: Offer[];
   rejected: string[];
   model: string;
+  /** Retailers the sweep actually asked about. */
+  asked: RetailerId[];
 }
 
-/** Ask Gemini, with Google Search grounding, for prices it can cite. */
-export async function collectGemini(): Promise<GeminiResult> {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) throw new Error('GEMINI_API_KEY is not set');
+interface ModelListing {
+  models?: { name?: string; supportedGenerationMethods?: string[] }[];
+}
 
-  const model = process.env.GEMINI_MODEL ?? DEFAULT_MODEL;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+/** Resolved once per warm instance; model availability does not change often. */
+let cachedModel: string | null = null;
+
+/**
+ * Pick a model the key can actually use. An explicit GEMINI_MODEL wins. Other
+ * wise the preference list is matched against what the API reports, so a
+ * renamed or withdrawn model degrades to the next choice rather than failing.
+ */
+export async function chooseModel(key: string): Promise<string> {
+  const configured = process.env.GEMINI_MODEL;
+  if (configured) return configured;
+  if (cachedModel) return cachedModel;
 
   try {
-    const response = await fetch(`${ENDPOINT}/${model}:generateContent`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: PROMPT }] }],
-        tools: [{ google_search: {} }],
-        generationConfig: { temperature: 0 },
-      }),
-      signal: controller.signal,
+    const response = await fetch(`${ENDPOINT}?pageSize=200`, {
+      headers: { 'x-goog-api-key': key },
       cache: 'no-store',
     });
 
-    if (!response.ok) {
-      throw new Error(`Gemini returned HTTP ${response.status}: ${(await response.text()).slice(0, 200)}`);
+    if (response.ok) {
+      const payload = (await response.json()) as ModelListing;
+      const usable = (payload.models ?? [])
+        .filter((model) => model.supportedGenerationMethods?.includes('generateContent'))
+        .map((model) => (model.name ?? '').replace(/^models\//, ''));
+
+      const preferred =
+        MODEL_PREFERENCE.find((name) => usable.includes(name)) ??
+        usable.find((name) => name.includes('flash') && !name.includes('thinking'));
+
+      if (preferred) {
+        cachedModel = preferred;
+        return preferred;
+      }
     }
-
-    const payload = (await response.json()) as {
-      candidates?: { content?: { parts?: { text?: string }[] } }[];
-    };
-
-    const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('') ?? '';
-    const parsed = extractJson(text) as { prices?: Claim[] } | null;
-
-    if (!parsed?.prices) {
-      return { offers: [], rejected: [`no JSON in reply: ${text.slice(0, 160)}`], model };
-    }
-
-    return { ...validateClaims(parsed.prices, new Date().toISOString()), model };
-  } finally {
-    clearTimeout(timeout);
+  } catch {
+    // Fall back to the first preference and let the call itself report failure.
   }
+
+  return MODEL_PREFERENCE[0];
+}
+
+/**
+ * The grounding tool has been spelled both ways across API revisions, so an
+ * argument rejection retries the other spelling before giving up.
+ */
+const TOOL_SHAPES: Record<string, unknown>[][] = [[{ googleSearch: {} }], [{ google_search: {} }]];
+
+/** True when a 400 is about the grounding tool field rather than the request. */
+function isToolShapeComplaint(status: number, body: string): boolean {
+  if (status !== 400) return false;
+  return /google_?search|unknown name|invalid json payload|tools/i.test(body);
+}
+
+async function generate(model: string, key: string, prompt: string): Promise<string> {
+  let lastError = 'no attempt made';
+
+  for (const tools of TOOL_SHAPES) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+    try {
+      const response = await fetch(`${ENDPOINT}/${model}:generateContent`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          tools,
+          generationConfig: { temperature: 0 },
+        }),
+        signal: controller.signal,
+        cache: 'no-store',
+      });
+
+      if (response.ok) {
+        const payload = (await response.json()) as {
+          candidates?: { content?: { parts?: { text?: string }[] } }[];
+        };
+        return payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('') ?? '';
+      }
+
+      const body = (await response.text()).slice(0, 300);
+      lastError = `HTTP ${response.status}: ${body}`;
+
+      // Retry the other spelling only when the tool field is what was refused.
+      // An auth or quota failure repeats identically, so it fails fast instead.
+      if (!isToolShapeComplaint(response.status, body)) throw new Error(lastError);
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+      if (!isToolShapeComplaint(400, lastError)) throw new Error(lastError);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  throw new Error(lastError);
+}
+
+/** Run tasks a few at a time so a sweep does not open ten calls at once. */
+async function inBatches<T, R>(items: T[], size: number, run: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = [];
+
+  for (let index = 0; index < items.length; index += size) {
+    const batch = items.slice(index, index + size);
+    results.push(...(await Promise.all(batch.map(run))));
+  }
+
+  return results;
+}
+
+/**
+ * Ask Gemini, with Google Search grounding, for prices it can cite. Queries are
+ * per retailer so the grounding stays focused and each citation is checkable
+ * against the shop it claims to quote.
+ */
+export async function collectGeminiFor(retailers: RetailerId[]): Promise<GeminiResult> {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) throw new Error('GEMINI_API_KEY is not set');
+  if (retailers.length === 0) return { offers: [], rejected: [], model: 'none', asked: [] };
+
+  const model = await chooseModel(key);
+  const capturedAt = new Date().toISOString();
+
+  const results = await inBatches(retailers, CONCURRENCY, async (retailer) => {
+    try {
+      const text = await generate(model, key, promptFor(retailer));
+      const parsed = extractJson(text) as { prices?: Claim[] } | null;
+
+      if (!parsed?.prices) {
+        return { offers: [], rejected: [`${retailer}: no JSON in reply: ${text.slice(0, 120)}`] };
+      }
+
+      // Trust the retailer we asked about over the one the reply names.
+      const claims = parsed.prices.map((claim) => ({ ...claim, retailer }));
+      return validateClaims(claims, capturedAt);
+    } catch (error) {
+      return { offers: [], rejected: [`${retailer}: ${error instanceof Error ? error.message : String(error)}`] };
+    }
+  });
+
+  return {
+    offers: results.flatMap((result) => result.offers),
+    rejected: results.flatMap((result) => result.rejected),
+    model,
+    asked: retailers,
+  };
+}
+
+/** Every retailer, used by the diagnostics. */
+export async function collectGemini(): Promise<GeminiResult> {
+  return collectGeminiFor(RETAILER_IDS);
 }

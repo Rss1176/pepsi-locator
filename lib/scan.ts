@@ -1,9 +1,14 @@
 import { ADAPTERS } from './retailers';
 import { runAdapter } from './retailers/base';
-import { collectGemini, isConfigured as geminiConfigured } from './sources/gemini';
+import {
+  collectGeminiFor,
+  DEFAULT_TARGETS,
+  isConfigured as geminiConfigured,
+  MAX_TARGETS,
+} from './sources/gemini';
 import { collectTrolley } from './sources/trolley';
 import { mergeOffers, readSnapshot, writeSnapshot } from './store';
-import type { Offer, RetailerStatus, Snapshot, SourceStatus } from './types';
+import type { Offer, RetailerId, RetailerStatus, Snapshot, SourceStatus } from './types';
 
 /** Per retailer budget. Adapters run concurrently inside the function timeout. */
 const ADAPTER_TIMEOUT_MS = 12_000;
@@ -40,8 +45,23 @@ async function runTrolley(): Promise<{ offers: Offer[]; status: SourceStatus }> 
   }
 }
 
+/**
+ * Grounded search costs money per call, so it is pointed at the retailers that
+ * failed last time rather than at all ten. With no previous sweep to learn
+ * from it starts with the ones known to refuse direct requests.
+ */
+export function geminiTargets(previous: Snapshot): RetailerId[] {
+  // No sweep has run yet, so start with the retailers known to refuse us.
+  if (previous.statuses.length === 0) return DEFAULT_TARGETS.slice(0, MAX_TARGETS);
+
+  return previous.statuses
+    .filter((status) => status.state !== 'ok' && status.state !== 'unsupported')
+    .map((status) => status.retailer)
+    .slice(0, MAX_TARGETS);
+}
+
 /** Ask Gemini, with Google Search grounding, for prices it can cite. */
-async function runGemini(): Promise<{ offers: Offer[]; status: SourceStatus }> {
+async function runGemini(targets: RetailerId[]): Promise<{ offers: Offer[]; status: SourceStatus }> {
   const startedAt = Date.now();
   const checkedAt = new Date().toISOString();
 
@@ -60,12 +80,14 @@ async function runGemini(): Promise<{ offers: Offer[]; status: SourceStatus }> {
   }
 
   try {
-    const result = await collectGemini();
-    const note = result.rejected.length > 0 ? `${result.rejected.length} claims rejected` : undefined;
+    const result = await collectGeminiFor(targets);
+    const asked = `asked ${result.asked.length} via ${result.model}`;
+    const note =
+      result.rejected.length > 0 ? `${asked}, ${result.rejected.length} claims rejected` : asked;
 
     return result.offers.length > 0
       ? { offers: result.offers, status: status('ok', result.offers.length, note) }
-      : { offers: [], status: status('empty', 0, note ?? 'No citable price returned') };
+      : { offers: [], status: status('empty', 0, `No citable price returned, ${note}`) };
   } catch (error) {
     return { offers: [], status: status('error', 0, error instanceof Error ? error.message : 'Unknown error') };
   }
@@ -82,7 +104,7 @@ export async function scanAll(): Promise<ScanResult> {
   const [runs, trolley, gemini] = await Promise.all([
     Promise.all(ADAPTERS.map((adapter) => runAdapter(adapter, ADAPTER_TIMEOUT_MS))),
     runTrolley(),
-    runGemini(),
+    runGemini(geminiTargets(previous)),
   ]);
 
   const direct: Offer[] = runs.flatMap((run) => run.offers);
